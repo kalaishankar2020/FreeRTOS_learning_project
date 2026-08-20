@@ -19,12 +19,14 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "FreeRTOS.h"
-#include "task.h"
+#include <stdio.h>
 #include "SEGGER_SYSVIEW.h"
+#include "SEGGER_RTT.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "task.h"
 /* USER CODE END Includes */
+
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
@@ -43,21 +45,18 @@
 
 /* Private variables ---------------------------------------------------------*/
 UART_HandleTypeDef huart2;
-BaseType_t status;
 
-TaskHandle_t task1_handle;
-TaskHandle_t task2_handle;
-TaskHandle_t task3_handle;
 /* USER CODE BEGIN PV */
-
+#define DWT_CTRL (*(volatile uint32_t*)0xE0001000)
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_USART2_UART_Init(void);
-/* USER CODE BEGIN PFP */
-
+/*static void MX_USART2_UART_Init(void);
+USER CODE BEGIN PFP */
+static void task1_handler(void* parameters);
+static void task2_handler(void* parameters);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -73,7 +72,8 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-
+  TaskHandle_t task1_handle;
+  TaskHandle_t task2_handle;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -94,11 +94,20 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
-  vTaskStartScheduler();
-  /* USER CODE END 2 */
+  HAL_NVIC_SetPriorityGrouping(3);
+   BaseType_t status;
+   //Enable CYCCNT Register
+   DWT_CTRL |= (1<<0);
 
+   SEGGER_SYSVIEW_Conf();
+   SEGGER_SYSVIEW_Start();
+   status = xTaskCreate(task1_handler,"Task-1", 200, "Hai I am Kalai", 2, &task1_handle);
+   configASSERT(status == pdPASS);
+   status = xTaskCreate(task2_handler,"Task-2", 200, "Hai I am Kalaivani", 2, &task2_handle);
+   configASSERT(status == pdPASS);
+  /* USER CODE END 2 */
+  vTaskStartScheduler();
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
@@ -122,7 +131,7 @@ void SystemClock_Config(void)
   /** Configure the main internal regulator output voltage
   */
   __HAL_RCC_PWR_CLK_ENABLE();
-  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE3);
 
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
@@ -132,9 +141,9 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-  RCC_OscInitStruct.PLL.PLLM = 8;
-  RCC_OscInitStruct.PLL.PLLN = 168;
-  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+  RCC_OscInitStruct.PLL.PLLM = 16;
+  RCC_OscInitStruct.PLL.PLLN = 336;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV4;
   RCC_OscInitStruct.PLL.PLLQ = 2;
   RCC_OscInitStruct.PLL.PLLR = 2;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
@@ -148,10 +157,10 @@ void SystemClock_Config(void)
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
-  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
   {
     Error_Handler();
   }
@@ -209,23 +218,20 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, led_inbuilt_Pin|GPIO_PIN_9|GPIO_PIN_10|GPIO_PIN_11
-                          |GPIO_PIN_12, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin : PC13 */
-  GPIO_InitStruct.Pin = GPIO_PIN_13;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  /*Configure GPIO pin : B1_Pin */
+  GPIO_InitStruct.Pin = B1_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+  HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : led_inbuilt_Pin PA9 PA10 PA11
-                           PA12 */
-  GPIO_InitStruct.Pin = led_inbuilt_Pin|GPIO_PIN_9|GPIO_PIN_10|GPIO_PIN_11
-                          |GPIO_PIN_12;
+  /*Configure GPIO pin : LD2_Pin */
+  GPIO_InitStruct.Pin = LD2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+  HAL_GPIO_Init(LD2_GPIO_Port, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -233,77 +239,21 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-static void led_inbuilt(void* parameters)
+static void task1_handler(void* parameters)
 {
-	SEGGER_SYSVIEW_PrintfTarget("Toggling the LED");
-	HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
-	status = xTaskNotifyWait(0, 0, NULL, (pdMS_TO_TICKS(1000)));
-	if(status== pdTRUE){
-		task3_handle = NULL;
-		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
-		vTaskDelete(NULL);
+ while(1){
+	printf("%s\n",(char*)parameters);
+	taskYIELD();
+ }
 }
-}
-/*static void led_2(void* parameters)
+static void task2_handler(void* parameters)
 {
-	SEGGER_SYSVIEW_PrintfTarget("Toggling the LED");
-	HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_9);
-	status = xTaskNotifyWait(0, 0, NULL, (pdMS_TO_TICKS(1000)));
-	if(status== pdTRUE){
-	    task3_handle = NULL;
-		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
-		SEGGER_SYSVIEW_PrintfTarget("Deleting the LED task");
-		vTaskDelete(task3_handle);
-		vTaskDelete(NULL);
-
-	}
-}*/
-static void button_task(void* parameters)
-{
-	uint8_t button_read = 0;
-	uint8_t prev_read = 0;
-	BaseType_t status;
-	while(1){
-		if(!prev_read){
-			xTaskNotify(task1_handle, 0, eNoAction);
-		}
-		prev_read = button_read;
-		vTaskDelay(pdMS_TO_TICKS(10));
-		status = xTaskNotifyWait(0, 0, NULL, (pdMS_TO_TICKS(1000)));
-		if(status== pdTRUE){
-			vTaskSuspendAll();
-			task3_handle = task1_handle;
-			xTaskResumeAll();
-			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-			vTaskDelete(NULL);
-		}
-	}
-
+ while(1){
+	 printf("%s\n",(char*)parameters);
+	 taskYIELD();
+ }
 }
-//
 /* USER CODE END 4 */
-
-/**
-  * @brief  Period elapsed callback in non blocking mode
-  * @note   This function is called  when TIM6 interrupt took place, inside
-  * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
-  * a global variable "uwTick" used as application time base.
-  * @param  htim : TIM handle
-  * @retval None
-  */
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-  /* USER CODE BEGIN Callback 0 */
-
-  /* USER CODE END Callback 0 */
-  if (htim->Instance == TIM6)
-  {
-    HAL_IncTick();
-  }
-  /* USER CODE BEGIN Callback 1 */
-
-  /* USER CODE END Callback 1 */
-}
 
 /**
   * @brief  This function is executed in case of error occurrence.
